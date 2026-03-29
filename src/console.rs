@@ -535,6 +535,11 @@ pub(crate) fn console_ui(
         return;
     }
 
+    // Trim scrollback to configured size before rendering
+    while state.scrollback.len() > config.scrollback_size {
+        state.scrollback.pop_front();
+    }
+
     // Recompute predictions if the buffer changed
     recompute_predictions(&mut state, &mut cache, config.num_suggestions);
 
@@ -684,11 +689,6 @@ pub(crate) fn console_ui(
                     });
             });
         });
-
-    // Trim scrollback to configured size
-    while state.scrollback.len() > config.scrollback_size {
-        state.scrollback.pop_front();
-    }
 }
 
 fn handle_enter(
