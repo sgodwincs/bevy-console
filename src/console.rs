@@ -684,6 +684,11 @@ pub(crate) fn console_ui(
                     });
             });
         });
+
+    // Trim scrollback to configured size
+    while state.scrollback.len() > config.scrollback_size {
+        state.scrollback.pop_front();
+    }
 }
 
 fn handle_enter(
