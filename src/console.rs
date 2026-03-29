@@ -548,15 +548,15 @@ pub(crate) fn console_ui(
     recompute_predictions(&mut state, &mut cache, config.num_suggestions);
 
     // Rebuild cached LayoutJobs when config changes (e.g. foreground_color)
-    if config.is_changed() {
+    let config_changed = config.is_changed();
+    if config_changed {
         for (line, job) in state.scrollback.iter_mut() {
             *job = style_ansi_text(line, &config);
         }
     }
 
-    egui::Window::new(&config.title_name)
+    let mut window = egui::Window::new(&config.title_name)
         .collapsible(config.collapsible)
-        .default_pos([config.left_pos, config.top_pos])
         .default_size([config.width, config.height])
         .resizable(config.resizable)
         .movable(config.moveable)
@@ -564,8 +564,15 @@ pub(crate) fn console_ui(
         .frame(egui::Frame {
             fill: config.background_color,
             ..Default::default()
-        })
-        .show(ctx, |ui| {
+        });
+
+    if config_changed {
+        window = window.current_pos([config.left_pos, config.top_pos]);
+    } else {
+        window = window.default_pos([config.left_pos, config.top_pos]);
+    }
+
+    window.show(ctx, |ui| {
             ui.style_mut().visuals.extreme_bg_color = config.background_color;
             ui.style_mut().visuals.override_text_color = Some(config.foreground_color);
 
@@ -769,7 +776,6 @@ pub(crate) fn receive_console_line(
         let message: &PrintConsoleLine = message;
         push_scrollback_line(&mut console_state.scrollback, message.line.clone(), &config);
     }
-    info!("scrollback size: {}", console_state.scrollback.len());
     while console_state.scrollback.len() > config.scrollback_size {
         console_state.scrollback.pop_front();
     }
