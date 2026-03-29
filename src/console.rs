@@ -395,7 +395,7 @@ pub struct ConsoleOpen {
 #[derive(Resource)]
 pub(crate) struct ConsoleState {
     pub(crate) buf: String,
-    pub(crate) scrollback: VecDeque<String>,
+    pub(crate) scrollback: VecDeque<(String, LayoutJob)>,
     pub(crate) history: VecDeque<String>,
     pub(crate) history_index: usize,
     pub(crate) suggestion_index: Option<usize>,
@@ -447,6 +447,15 @@ fn style_ansi_text(str: &str, config: &ConsoleConfiguration) -> LayoutJob {
         }
     }
     layout_job
+}
+
+fn push_scrollback_line(
+    scrollback: &mut VecDeque<(String, LayoutJob)>,
+    line: String,
+    config: &ConsoleConfiguration,
+) {
+    let job = style_ansi_text(&line, config);
+    scrollback.push_back((line, job));
 }
 
 /// Recompute predictions for the console based on the current buffer content.
@@ -535,13 +544,15 @@ pub(crate) fn console_ui(
         return;
     }
 
-    // Trim scrollback to configured size before rendering
-    while state.scrollback.len() > config.scrollback_size {
-        state.scrollback.pop_front();
-    }
-
     // Recompute predictions if the buffer changed
     recompute_predictions(&mut state, &mut cache, config.num_suggestions);
+
+    // Rebuild cached LayoutJobs when config changes (e.g. foreground_color)
+    if config.is_changed() {
+        for (line, job) in state.scrollback.iter_mut() {
+            *job = style_ansi_text(line, &config);
+        }
+    }
 
     egui::Window::new(&config.title_name)
         .collapsible(config.collapsible)
@@ -673,18 +684,15 @@ pub(crate) fn console_ui(
             // ------------------------
             // Central panel: scrollback
             // ------------------------
+            let row_height = 14.0;
+            let total_rows = state.scrollback.len();
             egui::CentralPanel::default().show_inside(ui, |ui| {
                 egui::ScrollArea::vertical()
                     .auto_shrink([false, false])
                     .stick_to_bottom(true)
-                    .show(ui, |ui| {
-                        for line in &state.scrollback {
-                            ui.label(style_ansi_text(line, &config));
-                        }
-
-                        // Scroll to bottom if console just opened
-                        if console_open.is_changed() {
-                            ui.scroll_to_cursor(Some(egui::Align::BOTTOM));
+                    .show_rows(ui, row_height, total_rows, |ui, row_range| {
+                        for (_line, layout_job) in state.scrollback.range(row_range) {
+                            ui.label(layout_job.clone());
                         }
                     });
             });
@@ -716,10 +724,10 @@ fn handle_enter(
         }
 
         if state.buf.trim().is_empty() {
-            state.scrollback.push_back(String::new());
+            push_scrollback_line(&mut state.scrollback, String::new(), config);
         } else {
             let msg = format!("{}{}", config.symbol, state.buf);
-            state.scrollback.push_back(msg);
+            push_scrollback_line(&mut state.scrollback, msg, config);
             let cmd_string = state.buf.clone();
             state.history.insert(1, cmd_string);
             if state.history.len() > config.history_size + 1 {
@@ -743,7 +751,7 @@ fn handle_enter(
                         config.commands.keys().collect::<Vec<_>>()
                     );
 
-                    state.scrollback.push_back("error: Invalid command".into());
+                    push_scrollback_line(&mut state.scrollback, "error: Invalid command".into(), config);
                 }
             }
 
@@ -759,8 +767,9 @@ pub(crate) fn receive_console_line(
 ) {
     for message in messages.read() {
         let message: &PrintConsoleLine = message;
-        console_state.scrollback.push_back(message.line.clone());
+        push_scrollback_line(&mut console_state.scrollback, message.line.clone(), &config);
     }
+    info!("scrollback size: {}", console_state.scrollback.len());
     while console_state.scrollback.len() > config.scrollback_size {
         console_state.scrollback.pop_front();
     }
