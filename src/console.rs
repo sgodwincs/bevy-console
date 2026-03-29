@@ -241,6 +241,8 @@ pub struct ConsoleConfiguration {
     pub commands: BTreeMap<&'static str, clap::Command>,
     /// Number of commands to store in history
     pub history_size: usize,
+    /// Maximum number of lines to keep in scrollback
+    pub scrollback_size: usize,
     /// Line prefix symbol
     pub symbol: String,
     /// allows window to be collpased
@@ -288,6 +290,7 @@ impl Default for ConsoleConfiguration {
             width: 800.0,
             commands: BTreeMap::new(),
             history_size: 20,
+            scrollback_size: 1000,
             symbol: "$ ".to_owned(),
             collapsible: false,
             title_name: "Console".to_string(),
@@ -314,6 +317,7 @@ impl Clone for ConsoleConfiguration {
             width: self.width,
             commands: self.commands.clone(),
             history_size: self.history_size,
+            scrollback_size: self.scrollback_size,
             symbol: self.symbol.clone(),
             arg_completions: self.arg_completions.clone(),
             collapsible: false,
@@ -391,7 +395,7 @@ pub struct ConsoleOpen {
 #[derive(Resource)]
 pub(crate) struct ConsoleState {
     pub(crate) buf: String,
-    pub(crate) scrollback: Vec<String>,
+    pub(crate) scrollback: VecDeque<String>,
     pub(crate) history: VecDeque<String>,
     pub(crate) history_index: usize,
     pub(crate) suggestion_index: Option<usize>,
@@ -401,7 +405,7 @@ impl Default for ConsoleState {
     fn default() -> Self {
         ConsoleState {
             buf: String::default(),
-            scrollback: Vec::new(),
+            scrollback: VecDeque::new(),
             history: VecDeque::from([String::new()]),
             history_index: 0,
             suggestion_index: None,
@@ -707,10 +711,10 @@ fn handle_enter(
         }
 
         if state.buf.trim().is_empty() {
-            state.scrollback.push(String::new());
+            state.scrollback.push_back(String::new());
         } else {
             let msg = format!("{}{}", config.symbol, state.buf);
-            state.scrollback.push(msg);
+            state.scrollback.push_back(msg);
             let cmd_string = state.buf.clone();
             state.history.insert(1, cmd_string);
             if state.history.len() > config.history_size + 1 {
@@ -734,7 +738,7 @@ fn handle_enter(
                         config.commands.keys().collect::<Vec<_>>()
                     );
 
-                    state.scrollback.push("error: Invalid command".into());
+                    state.scrollback.push_back("error: Invalid command".into());
                 }
             }
 
@@ -745,11 +749,15 @@ fn handle_enter(
 
 pub(crate) fn receive_console_line(
     mut console_state: ResMut<ConsoleState>,
+    config: Res<ConsoleConfiguration>,
     mut messages: MessageReader<PrintConsoleLine>,
 ) {
     for message in messages.read() {
         let message: &PrintConsoleLine = message;
-        console_state.scrollback.push(message.line.clone());
+        console_state.scrollback.push_back(message.line.clone());
+    }
+    while console_state.scrollback.len() > config.scrollback_size {
+        console_state.scrollback.pop_front();
     }
 }
 
